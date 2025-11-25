@@ -132,7 +132,7 @@ def render_setup():
             api = st.text_input('Gemini API Key (bỏ trống dùng mẫu)', type='password')
             name = st.text_input('Họ tên thí sinh', st.session_state.get('user_name', '......'))
             topic = st.selectbox('Chủ đề', ['Tổng hợp kiến thức', 'Di sản văn hóa', 'Nhà nước & Pháp luật'])
-            q_num = st.slider('Số lượng câu', 5, 20, 25 30, 10)
+            q_num = st.slider('Số lượng câu', 5, 20, 25, 30, 10)
             minutes = st.number_input('Thời gian (phút)', 5, 180, 15)
             negative = st.number_input('Trừ điểm cho câu sai', 0.0, 5.0, 0.25, step=0.25)
             per_weight = st.number_input('Điểm mặc định/câu', 0.25, 10.0, 1.0, step=0.25)
