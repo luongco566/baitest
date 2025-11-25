@@ -91,7 +91,7 @@ def get_quiz_from_gemini(api_key, topic):
         return None
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash') # Dùng bản Flash cho nhanh như điện
+    model = genai.GenerativeModel('gemini-2.5-flash') # Dùng bản Flash cho nhanh như điện
 
     prompt = f"""
     Đóng vai một giáo viên Lịch sử tâm huyết, vui tính.
