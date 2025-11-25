@@ -2,297 +2,311 @@ import streamlit as st
 import google.generativeai as genai
 import json
 import time
+import math
 
-# --- 1. CẤU HÌNH TRANG ---
-st.set_page_config(
-    page_title="Sử K59 - Dual Theme",
-    page_icon="🌗",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# --- 1. CẤU HÌNH TRANG & TRẠNG THÁI ---
+st.set_page_config(page_title="Thi Trực Tuyến", page_icon="📝", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. QUẢN LÝ THEME (STATE) ---
-if "theme" not in st.session_state:
-    st.session_state.theme = "light"
+if "exam_data" not in st.session_state: st.session_state.exam_data = []
+if "user_answers" not in st.session_state: st.session_state.user_answers = {} # Lưu index: đáp án
+if "current_index" not in st.session_state: st.session_state.current_index = 0
+if "exam_status" not in st.session_state: st.session_state.exam_status = "setup" # setup, ready, running, paused, review
+if "start_time" not in st.session_state: st.session_state.start_time = 0
+if "duration" not in st.session_state: st.session_state.duration = 0
+if "theme" not in st.session_state: st.session_state.theme = "light"
 
-# Hàm đổi theme
-def toggle_theme():
-    if st.session_state.theme == "light":
-        st.session_state.theme = "dark"
-    else:
-        st.session_state.theme = "light"
-
-# --- 3. ĐỊNH NGHĨA MÀU SẮC (PALETTE) ---
+# --- 2. HỆ THỐNG THEME TƯƠNG PHẢN CAO (HIGH CONTRAST) ---
 themes = {
     "light": {
-        "bg_color": "#f3f4f6",           # Xám rất nhạt
-        "card_bg": "#ffffff",            # Trắng tinh
-        "text_main": "#111827",          # Đen than (không đen tuyền)
-        "text_sub": "#4b5563",           # Xám trung tính
-        "accent": "#2563eb",             # Xanh dương đậm
-        "border": "#e5e7eb",             # Viền nhạt
-        "shadow": "0 10px 15px -3px rgba(0, 0, 0, 0.1)", # Bóng mềm
-        "input_bg": "#ffffff",
-        "badge_bg": "#dbeafe",
-        "badge_text": "#1e40af"
+        "bg": "#FFFFFF", "text": "#000000", "card": "#F8F9FA",
+        "border": "#DEE2E6", "primary": "#007AFF", "grid_item": "#FFFFFF",
+        "grid_active": "#007AFF", "grid_text": "#000000"
     },
     "dark": {
-        "bg_color": "#0f1117",           # Đen sâu (Streamlit dark)
-        "card_bg": "#1e293b",            # Xanh đen (Slate 800)
-        "text_main": "#f9fafb",          # Trắng đục
-        "text_sub": "#9ca3af",           # Xám sáng
-        "accent": "#60a5fa",             # Xanh dương sáng (dễ đọc trên nền đen)
-        "border": "#374151",             # Viền tối
-        "shadow": "none",                # Dark mode ít dùng bóng, dùng màu nền để tách lớp
-        "input_bg": "#334155",
-        "badge_bg": "#1e3a8a",
-        "badge_text": "#bfdbfe"
+        "bg": "#121212", "text": "#FFFFFF", "card": "#1E1E1E",
+        "border": "#333333", "primary": "#0A84FF", "grid_item": "#2C2C2C",
+        "grid_active": "#0A84FF", "grid_text": "#FFFFFF"
     }
 }
+T = themes[st.session_state.theme]
 
-current_theme = themes[st.session_state.theme]
-
-# --- 4. CSS ĐỘNG (DYNAMIC CSS INJECTION) ---
 st.markdown(f"""
 <style>
-    /* Global Transition */
-    * {{
-        transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-    }}
-
-    /* App Background */
-    .stApp {{
-        background-color: {current_theme['bg_color']};
-    }}
-    
-    /* Ẩn Header Streamlit */
-    header[data-testid="stHeader"] {{
-        background-color: transparent;
-    }}
-
-    /* Login Container & Exam Header & Question Box */
-    .theme-card {{
-        background-color: {current_theme['card_bg']};
-        border-radius: 16px;
-        padding: 40px;
-        box-shadow: {current_theme['shadow']};
-        border: 1px solid {current_theme['border']};
-        color: {current_theme['text_main']};
-    }}
+    /* Reset CSS */
+    .stApp {{ background-color: {T['bg']}; color: {T['text']}; }}
     
     /* Typography */
-    h1, h2, h3, .login-title {{
-        color: {current_theme['text_main']} !important;
-        font-family: 'Segoe UI', sans-serif;
-    }}
-    p, .login-subtitle, .question-content {{
-        color: {current_theme['text_main']} !important;
-        font-size: 16px;
-        line-height: 1.6;
+    h1, h2, h3, p, span, div, label {{ color: {T['text']} !important; font-family: 'Segoe UI', sans-serif; }}
+    
+    /* Header Azota Style */
+    .header-bar {{
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 15px 30px; border-bottom: 1px solid {T['border']};
+        background-color: {T['card']}; position: sticky; top: 0; z-index: 999;
     }}
     
-    /* Input Fields Fix */
-    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {{
-        background-color: {current_theme['input_bg']} !important;
-        color: {current_theme['text_main']} !important;
-        border-color: {current_theme['border']} !important;
+    /* Question Card */
+    .q-card {{
+        background-color: {T['card']}; padding: 30px; border-radius: 8px;
+        border: 1px solid {T['border']}; margin-bottom: 20px;
     }}
-    label, .stMarkdown p {{
-        color: {current_theme['text_main']} !important;
-    }}
+    .q-title {{ font-size: 18px; font-weight: 600; margin-bottom: 15px; }}
     
-    /* Button Custom */
-    div.stButton > button {{
-        background-color: {current_theme['accent']};
-        color: white !important;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 24px;
-        font-weight: 600;
+    /* Sidebar Grid (Question Palette) */
+    .grid-container {{
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+        padding: 15px; border: 1px solid {T['border']}; border-radius: 8px;
+        background-color: {T['card']};
     }}
-    div.stButton > button:hover {{
-        filter: brightness(110%);
-        box-shadow: 0 4px 12px {current_theme['accent']}40; /* 40 là độ trong suốt */
+    .grid-btn {{
+        text-align: center; padding: 8px 0; border-radius: 4px;
+        border: 1px solid {T['border']}; cursor: pointer; font-weight: bold;
+        background-color: {T['grid_item']}; color: {T['grid_text']}; transition: 0.2s;
     }}
-
-    /* Badge Style */
-    .badge {{
-        background-color: {current_theme['badge_bg']};
-        color: {current_theme['badge_text']};
-        padding: 4px 12px;
-        border-radius: 99px;
-        font-size: 12px;
-        font-weight: bold;
-        text-transform: uppercase;
+    .grid-btn.done {{ background-color: #E8F5E9; border-color: #4CAF50; color: #2E7D32; }} /* Đã làm (Light) */
+    .grid-btn.active {{ background-color: {T['primary']}; color: white !important; border-color: {T['primary']}; }}
+    
+    /* Radio Button Styling */
+    div[role="radiogroup"] > label {{
+        background-color: {T['bg']} !important; border: 1px solid {T['border']};
+        padding: 15px; border-radius: 8px; margin-bottom: 10px; transition: 0.2s;
     }}
-
-    /* Custom Border Left for Question */
-    .question-highlight {{
-        border-left: 4px solid {current_theme['accent']};
-    }}
-
+    div[role="radiogroup"] > label:hover {{ border-color: {T['primary']}; }}
+    
+    /* Input Fields */
+    input, select {{ background-color: {T['card']} !important; color: {T['text']} !important; border: 1px solid {T['border']} !important; }}
+    
+    /* Buttons */
+    button[kind="primary"] {{ background-color: {T['primary']} !important; color: white !important; border: none; }}
+    button[kind="secondary"] {{ background-color: transparent; border: 1px solid {T['border']}; color: {T['text']}; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 5. LOGIC DỮ LIỆU (KHÔNG ĐỔI) ---
+# --- 3. LOGIC XỬ LÝ ---
+
 KNOWLEDGE_BASE = """
 Tài liệu: Chuyên đề học tập Lịch sử 10 - Cánh Diều.
-1. SỬ HỌC: Thông sử (toàn diện), Lịch sử chuyên ngành (văn hóa, kinh tế...).
-2. DI SẢN: Vật thể (Huế, Hội An...), Phi vật thể (Nhã nhạc, Quan họ...), Thiên nhiên (Hạ Long), Hỗn hợp (Tràng An).
-3. NHÀ NƯỚC: Lý-Trần (Thân dân), Lê Sơ (Quan liêu chuyên chế), Nguyễn (Chuyên chế cao độ).
-4. LUẬT: Hồng Đức (nhân văn), Gia Long (nghiêm khắc).
-5. HIỆN ĐẠI: VNDCCH (1945), CHXHCNVN (1976). Hiến pháp: 1946, 1959, 1980, 1992, 2013.
+Chủ đề: Lịch sử Sử học, Di sản văn hóa, Nhà nước & Pháp luật Việt Nam.
 """
 
-def get_question(api_key, topic):
+def generate_exam_data(api_key, topic, num_questions=10):
+    """Sinh 1 lần 10-20 câu hỏi để tránh lag"""
     if not api_key: return None
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash') 
-        prompt = f"""
-        Tạo 1 câu hỏi trắc nghiệm Lịch sử 10 về: "{topic}".
-        JSON format:
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    prompt = f"""
+    Tạo một bộ đề thi trắc nghiệm gồm {num_questions} câu hỏi về chủ đề: "{topic}".
+    Dựa trên kiến thức: {KNOWLEDGE_BASE}.
+    Trả về định dạng JSON List chuẩn (Array of Objects). KHÔNG dùng markdown code block.
+    Cấu trúc:
+    [
         {{
-            "question": "Câu hỏi?",
+            "id": 1,
+            "question": "Nội dung câu hỏi?",
             "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
             "correct_answer": "Đáp án đúng (text)",
-            "explanation": "Giải thích."
-        }}
-        """
+            "explanation": "Giải thích ngắn."
+        }},
+        ...
+    ]
+    """
+    try:
         response = model.generate_content(prompt)
-        return json.loads(response.text.strip().replace("```json", "").replace("```", ""))
-    except Exception: return None
+        clean_json = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(clean_json)
+    except: return None
 
-# --- 6. GIAO DIỆN LOGIN ---
-def render_login():
-    # Nút đổi theme nằm góc trên phải
-    col_t1, col_t2 = st.columns([9, 1])
-    with col_t2:
-        # Icon thay đổi theo theme
-        theme_icon = "🌞" if st.session_state.theme == "light" else "🌙"
-        if st.button(theme_icon, key="theme_toggle_login", help="Đổi chế độ Sáng/Tối"):
-            toggle_theme()
-            st.rerun()
+def format_time(seconds):
+    m, s = divmod(seconds, 60)
+    return f"{int(m):02d}:{int(s):02d}"
 
+# --- 4. UI: MÀN HÌNH SETUP ---
+def render_setup():
+    st.markdown(f"<h1 style='text-align: center; color: {T['primary']}'>🏛️ HỆ THỐNG THI SỬ K59</h1>", unsafe_allow_html=True)
+    
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.markdown(f"""
-            <div class="theme-card" style="text-align: center; margin-top: 20px;">
-                <div style="font-size: 60px; margin-bottom: 10px;">🏛️</div>
-                <h2 class="login-title" style="margin: 0;">SỬ K59</h2>
-                <p class="login-subtitle">Đấu trường tri thức nè</p>
-                <hr style="border-color: {current_theme['border']}; margin: 20px 0;">
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Form nhập liệu
-        name = st.text_input("Họ tên thí sinh", placeholder="Nhập tên của bạn...")
-        api = st.text_input("Mã API Key", type="password")
-        topic = st.selectbox("Chủ đề thi", ["Tổng hợp kiến thức", "Di sản văn hóa", "Nhà nước & Pháp luật"])
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        if st.button("🚀 VÀO THI NGAY", use_container_width=True):
-            if name and api:
-                st.session_state.user_name = name
-                st.session_state.api_key = api
-                st.session_state.topic = topic
-                st.session_state.page = "exam"
-                st.rerun()
-            else:
-                st.error("Vui lòng nhập đủ thông tin!")
-
-# --- 7. GIAO DIỆN THI (EXAM) ---
-def render_exam():
-    # Sidebar
-    with st.sidebar:
-        st.markdown(f"### 👤 {st.session_state.user_name}")
-        st.caption(f"Chủ đề: {st.session_state.topic}")
-        st.markdown("---")
-        st.metric("Điểm số", f"{st.session_state.score}")
-        
-        st.markdown("<br>" * 5, unsafe_allow_html=True)
-        # Nút đổi theme trong sidebar
-        theme_label = "Chế độ Tối" if st.session_state.theme == "light" else "Chế độ Sáng"
-        if st.button(f"🌗 {theme_label}", use_container_width=True):
-            toggle_theme()
-            st.rerun()
+        with st.container(border=True):
+            st.markdown("### ⚙️ Cấu hình phòng thi")
+            api = st.text_input("Nhập Gemini API Key", type="password")
+            name = st.text_input("Họ tên thí sinh", "Liễu Lương")
+            topic = st.selectbox("Chủ đề", ["Tổng hợp kiến thức", "Di sản văn hóa", "Nhà nước & Pháp luật"])
+            q_num = st.slider("Số lượng câu hỏi", 5, 20, 10)
+            minutes = st.number_input("Thời gian làm bài (phút)", 5, 120, 15)
             
-        if st.button("🚪 Thoát", use_container_width=True):
-            st.session_state.page = "login"
+            if st.button("SOẠN ĐỀ THI 🚀", use_container_width=True, type="primary"):
+                if not api:
+                    st.error("Thiếu API Key kìa!")
+                else:
+                    with st.spinner("⏳ Đang in đề... Vui lòng đợi trong giây lát!"):
+                        data = generate_exam_data(api, topic, q_num)
+                        if data:
+                            st.session_state.exam_data = data
+                            st.session_state.user_name = name
+                            st.session_state.duration = minutes * 60
+                            st.session_state.start_time = time.time()
+                            st.session_state.exam_status = "running"
+                            st.rerun()
+                        else:
+                            st.error("AI bị lỗi, thử lại nhé!")
+
+# --- 5. UI: MÀN HÌNH THI (MAIN EXAM) ---
+def render_exam():
+    # Header Bar (Sticky)
+    elapsed = time.time() - st.session_state.start_time
+    remaining = max(0, st.session_state.duration - elapsed)
+    
+    # Nút đổi theme & Pause trên header
+    col_h1, col_h2, col_h3, col_h4 = st.columns([2, 4, 2, 2])
+    with col_h1:
+        if st.button("🌗 Đổi nền"):
+            st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
+            st.rerun()
+    with col_h2:
+        st.markdown(f"<div style='font-size: 20px; font-weight: bold; text-align: center;'>⏱️ {format_time(remaining)}</div>", unsafe_allow_html=True)
+    with col_h3:
+        st.markdown(f"<b>👤 {st.session_state.user_name}</b>", unsafe_allow_html=True)
+    with col_h4:
+        if st.button("Nộp bài", type="primary", use_container_width=True):
+            st.session_state.exam_status = "review"
             st.rerun()
 
-    # Header bài thi
-    st.markdown(f"""
-        <div class="theme-card" style="padding: 20px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <div>
-                <span class="badge">Đang diễn ra</span>
-                <strong style="margin-left: 10px; font-size: 18px;">Phòng thi Sử K59</strong>
-            </div>
-            <div>Câu số: <strong>{st.session_state.count + 1}</strong></div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("---")
 
-    # Lấy câu hỏi
-    if st.session_state.current_q is None:
-        with st.spinner("⏳ AI đang soạn đề..."):
-            st.session_state.current_q = get_question(st.session_state.api_key, st.session_state.topic)
+    # Layout: Left (Question) - Right (Grid)
+    col_main, col_nav = st.columns([3, 1])
+
+    # --- RIGHT: NAVIGATION GRID ---
+    with col_nav:
+        st.markdown("### 🔢 Danh sách câu hỏi")
+        
+        # Nút Pause/Resume
+        if st.button("⏸️ Tạm dừng làm bài", use_container_width=True):
+            st.session_state.exam_status = "paused"
+            st.session_state.pause_time = time.time() # Lưu thời điểm pause
             st.rerun()
 
-    q = st.session_state.current_q
-    if q:
-        # Hộp câu hỏi
+        # Grid câu hỏi
+        total_q = len(st.session_state.exam_data)
+        cols = st.columns(5) # 5 cột trong grid
+        for i in range(total_q):
+            is_active = (i == st.session_state.current_index)
+            is_done = (i in st.session_state.user_answers)
+            
+            # CSS class giả lập
+            btn_color = T['primary'] if is_active else ("#4CAF50" if is_done else T['card'])
+            btn_text = "white" if is_active or is_done else T['text']
+            border = T['primary'] if is_active else T['border']
+            
+            # Vì Streamlit button không chỉnh style trực tiếp từng cái dễ dàng, ta dùng logic
+            label = f"{i+1}"
+            if cols[i % 5].button(label, key=f"nav_{i}", help="Đi tới câu này"):
+                st.session_state.current_index = i
+                st.rerun()
+        
+        st.caption("Xanh lá: Đã làm | Xanh dương: Đang chọn")
+
+    # --- LEFT: QUESTION CONTENT ---
+    with col_main:
+        idx = st.session_state.current_index
+        q_data = st.session_state.exam_data[idx]
+        
         st.markdown(f"""
-            <div class="theme-card question-highlight">
-                <div class="question-content" style="font-size: 20px; font-weight: 600;">{q['question']}</div>
-            </div>
+        <div class="q-card">
+            <div class="q-title">Câu {idx + 1}: {q_data['question']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Radio button để chọn đáp án
+        # Lưu ý: Cần xử lý default value nếu đã chọn trước đó
+        prev_ans = st.session_state.user_answers.get(idx, None)
+        
+        user_choice = st.radio(
+            "Chọn đáp án:", 
+            q_data['options'], 
+            index=q_data['options'].index(prev_ans) if prev_ans else None,
+            key=f"q_{idx}",
+            label_visibility="collapsed"
+        )
+        
+        # Lưu đáp án ngay khi chọn (Auto-save state)
+        if user_choice:
+            st.session_state.user_answers[idx] = user_choice
+
+        # Nút điều hướng Previous/Next
+        c_prev, c_next = st.columns(2)
+        if c_prev.button("⬅️ Câu trước", disabled=(idx==0)):
+            st.session_state.current_index -= 1
+            st.rerun()
+        if c_next.button("Câu tiếp theo ➡️", disabled=(idx==total_q-1), type="primary"):
+            st.session_state.current_index += 1
+            st.rerun()
+
+# --- 6. UI: MÀN HÌNH PAUSE ---
+def render_paused():
+    st.markdown(f"""
+    <div style="text-align: center; padding-top: 100px;">
+        <h1 style="font-size: 80px;">⏸️</h1>
+        <h2>BÀI THI ĐANG TẠM DỪNG</h2>
+        <p>Thí sinh: {st.session_state.user_name}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1,1,1])
+    with col2:
+        if st.button("▶️ TIẾP TỤC LÀM BÀI", type="primary", use_container_width=True):
+            # Tính toán bù giờ
+            paused_duration = time.time() - st.session_state.pause_time
+            st.session_state.start_time += paused_duration # Dời thời gian bắt đầu để bù giờ
+            st.session_state.exam_status = "running"
+            st.rerun()
+
+# --- 7. UI: MÀN HÌNH KẾT QUẢ (REVIEW) ---
+def render_review():
+    st.markdown(f"<h2 style='text-align: center; color: {T['primary']}'>KẾT QUẢ BÀI THI</h2>", unsafe_allow_html=True)
+    
+    score = 0
+    total = len(st.session_state.exam_data)
+    
+    for i, q in enumerate(st.session_state.exam_data):
+        user_ans = st.session_state.user_answers.get(i, "Chưa trả lời")
+        correct_ans = q['correct_answer']
+        
+        is_correct = (user_ans == correct_ans)
+        if is_correct: score += 1
+        
+        # Màu sắc kết quả
+        bg_res = "#E8F5E9" if is_correct else "#FFEBEE" # Xanh nhẹ / Đỏ nhẹ
+        border_res = "green" if is_correct else "red"
+        icon = "✅" if is_correct else "❌"
+        
+        # Hiển thị từng câu (Light mode style for review for clarity)
+        st.markdown(f"""
+        <div style="background-color: {bg_res}; padding: 15px; border-radius: 8px; border-left: 5px solid {border_res}; margin-bottom: 10px; color: black;">
+            <strong>Câu {i+1}: {q['question']}</strong><br>
+            Your answer: {user_ans} {icon}<br>
+            Correct: <b>{correct_ans}</b><br>
+            <em>Giải thích: {q['explanation']}</em>
+        </div>
         """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Radio button
-        answer = st.radio("Chọn đáp án:", q['options'], index=None)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        c1, c2 = st.columns([1, 4])
-        if not st.session_state.ans_submitted:
-            if c1.button("🔒 Chốt đáp án"):
-                if answer:
-                    st.session_state.ans_submitted = True
-                    if answer == q['correct_answer']:
-                        st.session_state.score += 10
-                        st.success("Chính xác! +10 điểm")
-                    else:
-                        st.error(f"Sai rồi! Đáp án: {q['correct_answer']}")
-                    st.rerun()
-                else:
-                    st.warning("Chưa chọn đáp án!")
-        else:
-            st.info(f"💡 Giải thích: {q['explanation']}")
-            if c1.button("➡️ Câu tiếp theo"):
-                st.session_state.current_q = None
-                st.session_state.ans_submitted = False
-                st.session_state.count += 1
-                st.rerun()
-
-# --- 8. MAIN ---
-def main():
-    if "page" not in st.session_state: st.session_state.page = "login"
-    if "score" not in st.session_state: st.session_state.score = 0
-    if "count" not in st.session_state: st.session_state.count = 0
-    if "current_q" not in st.session_state: st.session_state.current_q = None
-    if "ans_submitted" not in st.session_state: st.session_state.ans_submitted = False
+    final_score = round((score / total) * 10, 2)
+    st.markdown(f"### Tổng điểm: {final_score} / 10")
     
-    # State cho tên người dùng
-    if "user_name" not in st.session_state: st.session_state.user_name = ""
+    if st.button("Làm bài mới 🔄"):
+        st.session_state.exam_data = []
+        st.session_state.user_answers = {}
+        st.session_state.current_index = 0
+        st.session_state.exam_status = "setup"
+        st.rerun()
 
-    if st.session_state.page == "login":
-        render_login()
-    else:
-        render_exam()
-
-if __name__ == "__main__":
-    main()
+# --- MAIN APP ---
+if st.session_state.exam_status == "setup":
+    render_setup()
+elif st.session_state.exam_status == "running":
+    render_exam()
+elif st.session_state.exam_status == "paused":
+    render_paused()
+elif st.session_state.exam_status == "review":
+    render_review()
