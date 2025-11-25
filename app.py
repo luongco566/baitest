@@ -1,210 +1,306 @@
 import streamlit as st
 import google.generativeai as genai
 import json
-import os
+import time
+from datetime import datetime
 
-# --- CẤU HÌNH TRANG & GIAO DIỆN (THEME XIAOMI/LEICA STYLE) ---
+# --- 1. CẤU HÌNH TRANG & CSS (GIAO DIỆN AZOTA STYLE) ---
 st.set_page_config(
-    page_title="Sử K59 - Quiz Master",
-    page_icon="📚",
-    layout="centered"
+    page_title="Sử K59 - Thi Trực Tuyến",
+    page_icon="📝",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Custom CSS để giao diện đẹp, "nét" như ảnh Lossless
+# CSS tùy chỉnh để giống Azota: Màu xanh chủ đạo, card bo tròn, đổ bóng nhẹ
 st.markdown("""
 <style>
+    /* Tổng thể */
     .stApp {
-        background-color: #f0f2f6;
+        background-color: #f5f7fa; /* Màu nền xám xanh nhẹ */
     }
+    
+    /* Header chính */
     .main-header {
-        font-family: 'Helvetica Neue', sans-serif;
-        color: #d32f2f; /* Màu đỏ Cánh Diều/Sư Phạm */
+        color: #004d99; /* Xanh đậm Azota */
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-weight: 700;
         text-align: center;
-        font-weight: bold;
-        padding-bottom: 20px;
-    }
-    .question-box {
-        background-color: white;
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        padding: 10px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         margin-bottom: 20px;
-        border-left: 5px solid #d32f2f;
     }
-    .stButton button {
-        background-color: #ffffff;
-        border: 1px solid #d32f2f;
-        color: #d32f2f;
-        border-radius: 8px;
-        transition: 0.3s;
+
+    /* Card câu hỏi */
+    .question-card {
+        background-color: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border-top: 5px solid #0084ff; /* Xanh Azota */
+        margin-bottom: 20px;
     }
-    .stButton button:hover {
-        background-color: #d32f2f;
+    
+    .question-text {
+        font-size: 1.3em;
+        font-weight: 600;
+        color: #333;
+        line-height: 1.5;
+    }
+
+    /* Sidebar User Info */
+    .user-card {
+        background: linear-gradient(135deg, #0084ff 0%, #0055cc 100%);
+        padding: 15px;
+        border-radius: 10px;
         color: white;
+        text-align: center;
+        margin-bottom: 20px;
     }
-    .success-msg {
-        color: #2e7d32;
-        font-weight: bold;
-        padding: 10px;
-        background-color: #e8f5e9;
-        border-radius: 5px;
+    
+    /* Buttons */
+    .stButton button {
+        border-radius: 6px;
+        font-weight: 600;
+        transition: all 0.2s;
     }
-    .error-msg {
-        color: #c62828;
+    /* Nút chính */
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+
+    /* Trạng thái */
+    .status-badge {
+        display: inline-block;
+        padding: 5px 10px;
+        border-radius: 15px;
+        font-size: 0.8em;
         font-weight: bold;
-        padding: 10px;
-        background-color: #ffebee;
-        border-radius: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- DỮ LIỆU TỪ TÀI LIỆU CÁNH DIỀU (CONTEXT) ---
-# Đây là phần "tinh hoa" được trích xuất từ file PDF của bạn để nạp cho AI
+# --- 2. DỮ LIỆU KIẾN THỨC (TỪ PDF CÁNH DIỀU) ---
 KNOWLEDGE_BASE = """
 Tài liệu: Chuyên đề học tập Lịch sử 10 - Bộ sách Cánh Diều.
-Gồm 3 chuyên đề chính:
-1. CÁC LĨNH VỰC CỦA SỬ HỌC:
-- Thông sử: Lịch sử toàn diện (chính trị, kinh tế, văn hóa...). Ví dụ: Đại Việt sử ký toàn thư.
-- Lịch sử theo lĩnh vực: Lịch sử văn hóa, tư tưởng, kinh tế, xã hội.
-- Phân biệt Lịch sử dân tộc (của 1 quốc gia) và Lịch sử thế giới (của nhân loại).
-- Các bộ sử liệu quan trọng: Đại Nam thực lục, Lĩnh Nam chích quái (dã sử), Đại Việt thông sử.
+1. [cite_start]CÁC LĨNH VỰC CỦA SỬ HỌC: [cite: 38]
+- Thông sử: Lịch sử toàn diện (chính trị, kinh tế, văn hóa...). [cite_start]VD: Lịch sử Việt Nam (Viện Sử học). [cite: 102]
+- [cite_start]Lịch sử theo lĩnh vực: Lịch sử văn hóa [cite: 145][cite_start], tư tưởng [cite: 182][cite_start], kinh tế [cite: 256][cite_start], xã hội[cite: 212].
+- [cite_start]Các bộ sử liệu: Đại Nam thực lục (Sử quán triều Nguyễn - Thông sử/Thực lục) [cite: 48][cite_start], Lĩnh Nam chích quái (Dã sử/Truyện kể) [cite: 64][cite_start], Đại Việt sử ký toàn thư (Sử biên niên)[cite: 77].
 
-2. BẢO TỒN VÀ PHÁT HUY GIÁ TRỊ DI SẢN VĂN HÓA:
-- Khái niệm: Di sản văn hóa vật thể (thành quách, lăng tẩm...) và phi vật thể (nhã nhạc, cồng chiêng...).
-- Xếp hạng di tích: Cấp tỉnh -> Cấp Quốc gia -> Cấp Quốc gia đặc biệt -> Di sản thế giới (UNESCO).
-- Ví dụ di sản tiêu biểu: Cố đô Huế, Phố cổ Hội An, Thánh địa Mỹ Sơn, Hoàng thành Thăng Long, Vịnh Hạ Long (thiên nhiên), Tràng An (hỗn hợp/phức hợp).
-- Di sản phi vật thể UNESCO: Nhã nhạc cung đình Huế, Cồng chiêng Tây Nguyên, Quan họ, Ca trù...
+2. [cite_start]BẢO TỒN DI SẢN VĂN HÓA: [cite: 329]
+- [cite_start]Phân loại: Vật thể (Thành quách, lăng tẩm...) [cite: 371] [cite_start]và Phi vật thể (Nhã nhạc, cồng chiêng...)[cite: 371].
+- [cite_start]Xếp hạng: Cấp tỉnh -> Quốc gia -> Quốc gia đặc biệt -> Di sản thế giới[cite: 395].
+- Di sản thế giới tại VN:
+    + [cite_start]Vật thể: Cố đô Huế [cite: 553][cite_start], Hội An [cite: 403][cite_start], Mỹ Sơn [cite: 628][cite_start], Hoàng thành Thăng Long [cite: 617][cite_start], Thành nhà Hồ[cite: 585].
+    + [cite_start]Phi vật thể: Nhã nhạc cung đình Huế [cite: 560][cite_start], Cồng chiêng Tây Nguyên [cite: 416][cite_start], Quan họ, Ca trù, Đờn ca tài tử[cite: 573].
+    + [cite_start]Thiên nhiên: Vịnh Hạ Long [cite: 688][cite_start], Phong Nha - Kẻ Bàng[cite: 644].
+    + [cite_start]Hỗn hợp: Tràng An (Duy nhất ĐNA)[cite: 737].
 
-3. NHÀ NƯỚC VÀ PHÁP LUẬT TRONG LỊCH SỬ VIỆT NAM:
-- Mô hình quân chủ: Thời Lý-Trần (quý tộc/thân dân), Lê Sơ (quan liêu chuyên chế điển hình), Nguyễn (chuyên chế cao độ).
-- Bộ luật cổ: Quốc triều hình luật (Luật Hồng Đức - thời Lê Sơ, tiến bộ, bảo vệ phụ nữ), Hoàng Việt luật lệ (Luật Gia Long - thời Nguyễn, nghiêm khắc).
-- Nhà nước VNDCCH (1945-1976): Ra đời 2/9/1945. Hiến pháp 1946 (đầu tiên).
-- Nhà nước CHXHCNVN (1976-nay): Đổi tên từ 1976. Hiến pháp 1980, 1992 (thời kỳ đổi mới), 2013 (mới nhất).
+3. [cite_start]NHÀ NƯỚC & PHÁP LUẬT: [cite: 766]
+- [cite_start]Thời Lý-Trần: Quân chủ quý tộc/thân dân[cite: 793].
+- [cite_start]Thời Lê Sơ: Quân chủ quan liêu chuyên chế điển hình (Vua Lê Thánh Tông)[cite: 826].
+- [cite_start]Thời Nguyễn: Chuyên chế tập quyền cao độ (Vua Minh Mạng cải cách hành chính 1832)[cite: 848].
+- Bộ luật:
+    + [cite_start]Quốc triều hình luật (Luật Hồng Đức): Thời Lê Sơ, tiến bộ, bảo vệ phụ nữ[cite: 874].
+    + [cite_start]Hoàng Việt luật lệ (Luật Gia Long): Thời Nguyễn, nghiêm khắc, mô phỏng luật Thanh[cite: 884].
+- [cite_start]Nhà nước VNDCCH: Ra đời 2/9/1945[cite: 899]. [cite_start]Hiến pháp 1946 (đầu tiên)[cite: 1000].
+- [cite_start]Nhà nước CHXHCNVN: Đổi tên từ 1976[cite: 960]. [cite_start]Hiến pháp 1980, 1992 (Đổi mới) [cite: 1041][cite_start], 2013 (Mới nhất)[cite: 1054].
 """
 
-# --- XỬ LÝ GEMINI API ---
-def get_quiz_from_gemini(api_key, topic):
-    """Hàm gọi Gemini để sinh câu hỏi JSON"""
-    if not api_key:
-        st.warning("⚠️ Chưa nhập API Key kìa người anh em!")
-        return None
-    
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash') # Dùng bản Flash cho nhanh như điện
+# --- 3. HÀM XỬ LÝ LOGIC ---
 
-    prompt = f"""
-    Đóng vai một giáo viên Lịch sử tâm huyết, vui tính.
-    Dựa vào nội dung sau đây từ sách Chuyên đề Lịch sử 10 Cánh Diều:
-    ---
-    {KNOWLEDGE_BASE}
-    ---
-    Hãy tạo ra 1 câu hỏi trắc nghiệm về chủ đề: "{topic}".
-    Yêu cầu định dạng trả về tuyệt đối phải là JSON (không có markdown ```json) với cấu trúc sau:
-    {{
-        "question": "Nội dung câu hỏi",
-        "options": ["Đáp án A", "Đáp án B", "Đáp án C", "Đáp án D"],
-        "correct_answer": "Đáp án đúng (chép y nguyên text của option đúng)",
-        "explanation": "Giải thích ngắn gọn, thú vị tại sao đúng, dựa vào kiến thức sách giáo khoa."
-    }}
-    Chỉ trả về JSON, không thêm lời dẫn.
-    """
+def get_question(api_key, topic):
+    """Gọi Gemini tạo câu hỏi"""
+    if not api_key: return None
     
+    # Cấu hình model (Dùng 1.5 Pro cho thông minh hoặc Flash cho nhanh)
     try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash') 
+        
+        prompt = f"""
+        Bạn là hệ thống tạo đề thi trắc nghiệm Lịch sử chuyên nghiệp.
+        Dựa vào kiến thức sau:
+        {KNOWLEDGE_BASE}
+        
+        Hãy tạo 1 câu hỏi trắc nghiệm KHÓ và HAY về chủ đề: "{topic}".
+        Yêu cầu JSON output:
+        {{
+            "question": "Câu hỏi...",
+            "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
+            "correct_answer": "Đáp án đúng (nguyên văn)",
+            "explanation": "Giải thích ngắn gọn dựa trên sách giáo khoa."
+        }}
+        """
         response = model.generate_content(prompt)
-        # Làm sạch chuỗi json nếu lỡ Gemini thêm markdown
-        clean_text = response.text.strip().replace("```json", "").replace("```", "")
-        return json.loads(clean_text)
+        return json.loads(response.text.strip().replace("```json", "").replace("```", ""))
     except Exception as e:
-        st.error(f"Lỗi kết nối vệ tinh Gemini: {e}")
+        st.error(f"Lỗi kết nối AI: {e}")
         return None
 
-# --- GIAO DIỆN CHÍNH ---
+def save_progress():
+    """Lưu dữ liệu phiên làm việc thành JSON"""
+    data = {
+        "user": st.session_state.user_name,
+        "date": str(datetime.now()),
+        "score": st.session_state.score,
+        "total_attempted": st.session_state.count,
+        "history": st.session_state.history
+    }
+    return json.dumps(data, indent=4, ensure_ascii=False)
 
-def main():
-    st.markdown("<h1 class='main-header'>🏛️ ĐẤU TRƯỜNG SỬ K59 - CÁNH DIỀU 🪁</h1>", unsafe_allow_html=True)
-    
-    # Sidebar cấu hình
+# --- 4. CÁC MÀN HÌNH (SCREENS) ---
+
+def render_login():
+    """Màn hình đăng nhập"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div style='text-align: center; margin-top: 50px;'>", unsafe_allow_html=True)
+        st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=100)
+        st.markdown("## ĐĂNG NHẬP HỆ THỐNG THI")
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            name = st.text_input("Họ và tên thí sinh:", placeholder="Ví dụ: Liễu Lương - Sử K59")
+            api = st.text_input("Mã truy cập (API Key):", type="password")
+            topic = st.selectbox("Chọn chuyên đề thi:", 
+                               ["Tổng hợp kiến thức", "Di sản văn hóa", "Nhà nước & Pháp luật", "Lịch sử Sử học"])
+            
+            submitted = st.form_submit_button("BẮT ĐẦU LÀM BÀI ▶️", use_container_width=True)
+            
+            if submitted:
+                if name and api:
+                    st.session_state.user_name = name
+                    st.session_state.api_key = api
+                    st.session_state.topic = topic
+                    st.session_state.page = "exam"
+                    st.rerun()
+                else:
+                    st.warning("Vui lòng điền đầy đủ thông tin!")
+
+def render_exam():
+    """Màn hình làm bài thi chính"""
+    # --- Sidebar: Thông tin & Điều khiển ---
     with st.sidebar:
-        st.header("⚙️ Cấu hình thiết bị")
-        api_key = st.text_input("Nhập Gemini API Key", type="password", help="Lấy tại aistudio.google.com")
-        st.info("💡 Mẹo: Liễu Lương hãy nhập API Key để kích hoạt 'trí tuệ nhân tạo' nhé!")
+        st.markdown(f"""
+        <div class="user-card">
+            <h3>👤 {st.session_state.user_name}</h3>
+            <p>Chuyên đề: {st.session_state.topic}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Bảng điểm mini
+        c1, c2 = st.columns(2)
+        c1.metric("Điểm số", st.session_state.score)
+        c2.metric("Số câu", st.session_state.count)
         
         st.markdown("---")
-        topic = st.selectbox(
-            "Chọn chủ đề muốn ôn luyện:",
-            ["Các lĩnh vực của Sử học", "Di sản văn hóa (Vật thể/Phi vật thể)", "Nhà nước & Pháp luật (Cổ trung đại)", "Hiến pháp Việt Nam (Hiện đại)"]
-        )
+        # Nút chức năng
+        if st.button("⏸️ Tạm dừng làm bài", use_container_width=True):
+            st.session_state.page = "paused"
+            st.rerun()
         
-        if st.button("🔄 Tạo câu hỏi mới", use_container_width=True):
-            st.session_state.current_question = None
-            st.session_state.user_answer = None
-            st.session_state.submitted = False
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Lưu kết quả & Thoát", use_container_width=True):
+            json_data = save_progress()
+            st.download_button(
+                label="📥 Tải file kết quả (.json)",
+                data=json_data,
+                file_name=f"ket_qua_{st.session_state.user_name}.json",
+                mime="application/json"
+            )
+
+    # --- Main Content ---
+    st.markdown(f"<h2 class='main-header'>🏛️ ĐỀ THI: {st.session_state.topic.upper()}</h2>", unsafe_allow_html=True)
+
+    # Logic lấy câu hỏi
+    if st.session_state.current_q is None:
+        with st.spinner("🤖 AI đang biên soạn câu hỏi..."):
+            st.session_state.current_q = get_question(st.session_state.api_key, st.session_state.topic)
+            st.session_state.q_start_time = time.time()
             st.rerun()
 
-    # Khởi tạo Session State (Bộ nhớ tạm của ứng dụng)
-    if 'current_question' not in st.session_state:
-        st.session_state.current_question = None
-    if 'submitted' not in st.session_state:
-        st.session_state.submitted = False
-    if 'score' not in st.session_state:
-        st.session_state.score = 0
-
-    # Logic sinh câu hỏi
-    if st.session_state.current_question is None:
-        if api_key:
-            with st.spinner("Đang lục lọi thư tịch cổ... chờ chút nhé! ⏳"):
-                quiz_data = get_quiz_from_gemini(api_key, topic)
-                if quiz_data:
-                    st.session_state.current_question = quiz_data
-                    st.rerun()
-        else:
-            st.info("👈 Mời bạn nhập API Key bên tay trái để bắt đầu chuyến hành trình.")
-            return
-
     # Hiển thị câu hỏi
-    if st.session_state.current_question:
-        q_data = st.session_state.current_question
-        
+    q = st.session_state.current_q
+    if q:
         st.markdown(f"""
-        <div class="question-box">
-            <h3>🔥 Câu hỏi:</h3>
-            <p style="font-size: 1.2em;">{q_data['question']}</p>
+        <div class="question-card">
+            <div class="status-badge" style="background:#e3f2fd; color:#0d47a1;">Câu hỏi số {st.session_state.count + 1}</div>
+            <p class="question-text">{q['question']}</p>
         </div>
         """, unsafe_allow_html=True)
 
-        # Form trả lời
-        with st.form("quiz_form"):
-            choice = st.radio("Lựa chọn của bạn:", q_data['options'], index=None)
-            submit_btn = st.form_submit_button("Chốt đáp án! 🚀")
-
-            if submit_btn and choice:
-                st.session_state.user_answer = choice
-                st.session_state.submitted = True
-            elif submit_btn and not choice:
-                st.toast("Chưa chọn đáp án kìa bạn ơi!", icon="😅")
-
-        # Xử lý kết quả
-        if st.session_state.submitted:
-            correct = q_data['correct_answer']
-            user_choice = st.session_state.user_answer
-            
-            st.markdown("---")
-            if user_choice == correct:
-                st.markdown(f'<div class="success-msg">✅ Chính xác! Quá đẳng cấp!</div>', unsafe_allow_html=True)
-                st.balloons()
-            else:
-                st.markdown(f'<div class="error-msg">❌ Sai mất rồi! Đáp án đúng là: {correct}</div>', unsafe_allow_html=True)
-            
-            # Giải thích (luôn hiện để học)
-            with st.expander("📖 Xem giải thích chi tiết (Kiến thức Cánh Diều)", expanded=True):
-                st.info(q_data['explanation'])
-            
-            # Nút Next
-            if st.button("Câu tiếp theo ➡️"):
-                st.session_state.current_question = None
-                st.session_state.submitted = False
+        # Khu vực trả lời
+        answer = st.radio("Chọn đáp án của bạn:", q['options'], index=None, key="radio_ans")
+        
+        col_submit, col_next = st.columns([1, 4])
+        
+        # Logic nút bấm
+        if not st.session_state.ans_submitted:
+            if col_submit.button("Chốt đáp án 🔒", type="primary"):
+                if answer:
+                    st.session_state.ans_submitted = True
+                    if answer == q['correct_answer']:
+                        st.session_state.score += 10
+                        st.success("🎉 Chính xác! +10 điểm")
+                    else:
+                        st.error(f"❌ Sai rồi! Đáp án đúng: {q['correct_answer']}")
+                    
+                    # Lưu lịch sử
+                    st.session_state.history.append({
+                        "q": q['question'],
+                        "user_ans": answer,
+                        "correct": q['correct_answer'],
+                        "is_correct": answer == q['correct_answer']
+                    })
+                    st.rerun()
+                else:
+                    st.toast("Bạn chưa chọn đáp án!", icon="⚠️")
+        else:
+            # Hiện giải thích sau khi trả lời
+            st.info(f"💡 **Giải thích:** {q['explanation']}")
+            if col_submit.button("Câu tiếp theo ➡️"):
+                st.session_state.current_q = None
+                st.session_state.ans_submitted = False
+                st.session_state.count += 1
                 st.rerun()
+
+def render_paused():
+    """Màn hình tạm dừng"""
+    st.markdown("<div style='text-align: center; padding-top: 100px;'>", unsafe_allow_html=True)
+    st.markdown("<h1>⏸️</h1>", unsafe_allow_html=True)
+    st.markdown("## BÀI THI ĐANG ĐƯỢC TẠM DỪNG")
+    st.markdown(f"Thí sinh: **{st.session_state.user_name}** | Điểm hiện tại: **{st.session_state.score}**")
+    st.markdown("Hít thở sâu và quay lại khi đã sẵn sàng nhé!")
+    
+    if st.button("▶️ Tiếp tục làm bài", type="primary"):
+        st.session_state.page = "exam"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# --- 5. HÀM MAIN (KHỞI TẠO APP) ---
+
+def main():
+    # Khởi tạo Session State
+    if "page" not in st.session_state: st.session_state.page = "login"
+    if "score" not in st.session_state: st.session_state.score = 0
+    if "count" not in st.session_state: st.session_state.count = 0
+    if "current_q" not in st.session_state: st.session_state.current_q = None
+    if "ans_submitted" not in st.session_state: st.session_state.ans_submitted = False
+    if "history" not in st.session_state: st.session_state.history = []
+    if "user_name" not in st.session_state: st.session_state.user_name = ""
+
+    # Điều hướng
+    if st.session_state.page == "login":
+        render_login()
+    elif st.session_state.page == "exam":
+        render_exam()
+    elif st.session_state.page == "paused":
+        render_paused()
 
 if __name__ == "__main__":
     main()
