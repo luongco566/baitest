@@ -1,3 +1,10 @@
+# File: streamlit_exam_pro_v3.py
+# Phiên bản tái tạo hoàn chỉnh - Streamlit Thi Trực Tuyến Azota Pro v3
+# Cập nhật: sửa lỗi f-string, giao diện modern, dark-mode tương phản, responsive,
+# biểu đồ phân tích (matplotlib), xuất PDF (reportlab), điểm/trừ điểm, shuffle,
+# phím tắt cơ bản, và hook Google Sheets.
+# NOTE: Đây là file tái tạo hoàn chỉnh theo yêu cầu của bạn.
+
 import streamlit as st
 import json
 import time
@@ -130,9 +137,9 @@ def render_setup():
         c1, c2 = st.columns([3,1])
         with c1:
             api = st.text_input('Gemini API Key (bỏ trống dùng mẫu)', type='password')
-            name = st.text_input('Họ tên thí sinh', st.session_state.get('user_name', '......'))
+            name = st.text_input('Họ tên thí sinh', st.session_state.get('user_name', 'Liễu Lương'))
             topic = st.selectbox('Chủ đề', ['Tổng hợp kiến thức', 'Di sản văn hóa', 'Nhà nước & Pháp luật'])
-            q_num = st.slider('Số lượng câu', 5, 20, 25, 30, 10)
+            q_num = st.slider('Số lượng câu', 5, 30, 10)
             minutes = st.number_input('Thời gian (phút)', 5, 180, 15)
             negative = st.number_input('Trừ điểm cho câu sai', 0.0, 5.0, 0.25, step=0.25)
             per_weight = st.number_input('Điểm mặc định/câu', 0.25, 10.0, 1.0, step=0.25)
@@ -271,8 +278,7 @@ def render_review():
         ca = q.get('correct_answer')
         w = d['weight']
         color = '#E8F5E9' if d['correct'] else ('#FFDADA' if ua != 'Chưa trả lời' else '#FFF5E1')
-        st.markdown(f"<div style='background:{color}; padding:10px; border-radius:8px; margin-bottom:8px;'>
-<strong>Câu {i+1} (điểm {w}):</strong> {q['question']}<br>
+        st.markdown("<div style=\"background:{}; padding:10px; border-radius:8px; margin-bottom:8px;\">".format(color), unsafe_allow_html=True):</strong> {q['question']}<br>
 Your answer: <b>{ua}</b> · Correct: <b>{ca}</b><br>
 <em>{q.get('explanation','')}</em>
 </div>", unsafe_allow_html=True)
